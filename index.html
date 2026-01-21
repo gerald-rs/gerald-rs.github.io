@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Portfolio — Gérald Iarovana Ratsiraka</title>
+  <meta name="description" content="Portfolio de Gérald Iarovana Ratsiraka — projets, compétences et contact." />
+  <meta name="robots" content="index,follow" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+  <svg class="svg-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-download" viewBox="0 0 24 24">
+      <path d="M12 3v10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <path d="M7 11l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M5 21h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+
+    <symbol id="i-heart" viewBox="0 0 24 24">
+      <path d="M12 21s-7-4.4-9.5-8.5C.7 9 2.3 5.6 6 5.6c2 0 3.2 1.1 4 2.1.8-1 2-2.1 4-2.1 3.7 0 5.3 3.4 3.5 6.9C19 16.6 12 21 12 21z"
+            fill="currentColor"/>
+    </symbol>
+  </svg>
+
+  <header class="header print-hidden">
+    <nav class="container nav">
+      <div class="nav__top">
+        <h1 class="brand" aria-label="Nom">Gérald Iarovana Ratsiraka</h1>
+
+        <div class="nav__desktop">
+          <ul class="nav__links" aria-label="Navigation principale">
+            <li><a href="#accueil">Accueil</a></li>
+            <li><a href="#a-propos">À propos</a></li>
+            <li><a href="#competences">Compétences</a></li>
+            <li><a href="#projets">Projets</a></li>
+            <li><a href="#contact">Contact</a></li>
+          </ul>
+
+          <!-- ✅ Téléchargement du CV : mets ton fichier à ce nom au même niveau que index.html -->
+          <a class="btn btn--gold" id="pdfBtnDesktop" href="RATSIRAKA Gérald Iarovana CV.pdf" download aria-label="Télécharger le CV">
+            <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
+            Télécharger CV
+          </a>
+        </div>
+
+        <button class="nav__toggle" id="menuToggle" type="button" aria-expanded="false" aria-label="Menu mobile">
+          Menu
+        </button>
+      </div>
+
+      <div class="nav__mobile hidden" id="mobileMenu">
+        <ul class="nav__links nav__links--col">
+          <li><a href="#accueil">Accueil</a></li>
+          <li><a href="#a-propos">À propos</a></li>
+          <li><a href="#competences">Compétences</a></li>
+          <li><a href="#projets">Projets</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+
+        <!-- ✅ Téléchargement du CV (mobile) : même fichier, même chemin -->
+        <a class="btn btn--gold btn--full" id="pdfBtnMobile" href="RATSIRAKA Gérald Iarovana CV.pdf" download aria-label="Télécharger le CV">
+          <svg class="icon" aria-hidden="true"><use href="#i-download"/></svg>
+          Télécharger CV
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section id="accueil" class="hero">
+      <div class="container hero__inner">
+        <h2 class="hero__title">Portfolio</h2>
+        <p class="hero__name">Gérald Iarovana Ratsiraka</p>
+        <p class="hero__sub">Étudiant en TEMA (Technologie et Management) - Neoma Business School</p>
+
+        <a class="btn btn--gold btn--pill" href="#a-propos" aria-label="Découvrir mon parcours">
+          Découvrir mon parcours
+        </a>
+      </div>
+    </section>
+
+    <section id="a-propos" class="section section--dark">
+      <div class="container">
+        <h2 class="title">À propos de moi</h2>
+
+        <div class="grid grid--2">
+          <div class="text">
+            <p>Bonjour ! Je suis <strong>Gérald Iarovana Ratsiraka</strong>, étudiant en 2ème année de TEMA à <strong>Neoma Business School</strong>.</p>
+            <p>J'ai eu l'opportunité de réaliser un semestre d'immersion de 6 mois à <strong>Epitech</strong>, où j'ai développé mes compétences en programmation, notamment en <strong>HTML, CSS, JavaScript et Java</strong>.</p>
+            <p>Passionné par l'univers de la finance et le développement, j'ai également effectué un stage de plusieurs mois chez <strong>Colas à Madagascar</strong>, une entreprise leader dans le secteur du BTP.</p>
+            <p>Mon objectif est de continuer à développer mes compétences à l'intersection de la technologie, du management et de la finance pour contribuer à des projets innovants.</p>
+          </div>
+
+          <img
+            class="img"
+            src="photo.jpg"
+            alt="Illustration à propos"
+            loading="lazy"
+            onerror="this.style.display='none'; document.getElementById('aboutFallback').style.display='block';"
+          />
+          <div id="aboutFallback" class="img-fallback" style="display:none;">
+            Image introuvable : vérifie le chemin dans src
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="competences" class="section section--alt">
+      <div class="container">
+        <h2 class="title">Mes Compétences</h2>
+        <p class="subtitle">Un ensemble de compétences techniques, créatives et managériales</p>
+
+        <div class="grid grid--4">
+          <article class="card">
+            <div class="badge">Dev</div>
+            <h3>Développement Web</h3>
+            <p>HTML5, CSS3, JavaScript, Java</p>
+          </article>
+
+          <article class="card">
+            <div class="badge">Créa</div>
+            <h3>Suite Adobe</h3>
+            <p>Photoshop, Illustrator, Premiere Pro</p>
+          </article>
+
+          <article class="card">
+            <div class="badge">Finance</div>
+            <h3>Connaissances Financières</h3>
+            <p>Marchés financiers, analyse, trading</p>
+          </article>
+
+          <article class="card">
+            <div class="badge">Projet</div>
+            <h3>Gestion de Projet</h3>
+            <p>Management, organisation, pilotage</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="projets" class="section section--dark">
+      <div class="container">
+        <h2 class="title">Mes Projets & Expériences</h2>
+        <p class="subtitle">Une sélection de mes réalisations et expériences</p>
+
+        <div class="grid grid--3">
+
+          <!-- PROJET 1 -->
+          <article class="card card--media">
+            <img
+              class="media"
+              src="Capture d'écran 2025-12-03 à 16.38.53.png"
+              alt="Projet : Jeu en Java"
+              loading="lazy"
+              onerror="this.style.display='none'; this.parentElement.classList.add('media-fallback');"
+            />
+
+            <div class="pad">
+              <h3>Jeu en Java</h3>
+              <p>Jeu complet en Java (POO) — projet Epitech.</p>
+
+              <div class="tags">
+                <span>Java</span><span>POO</span><span>Game</span><span>Epitech</span>
+              </div>
+
+              <div class="row">
+                <button class="link details-btn" type="button" aria-expanded="false">Détails</button>
+              </div>
+
+              <div class="details-panel" hidden>
+                <p class="muted">
+                  Ce projet est globalement un projet en groupe qui consiste a montré
+                  ce de quoi nous étions capable avec les connaissances acquises sur un langage informatique récemment appris , le java.
+                  C'est de là que né GGOAT.
+                  GGOAT est un petit jeu 2D inspiré d'Undertale, développé en Java .  
+Le joueur incarne un jeune aventurier perdu dans la grotte **Epitech**, où de bonnes et de mauvaises personnes se confondent.  
+Son objectif : retrouver un objet motorisé appelé **"scooter du tieks"**, en traversant plusieurs salles et en résolvant des énigmes.
+                </p>
+
+                <div class="details-images">
+                  <img src="Capture d'écran 2026-01-12 103716.png" alt="Illustration 1 — Jeu en Java" loading="lazy">
+                  <img src="Capture d'écran 2026-01-13 à 16.57.28.png" alt="Illustration 2 — Jeu en Java" loading="lazy">
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- PROJET 2 -->
+          <article class="card card--media">
+            <img
+              class="media"
+              src="Capture d'écran 2025-05-28 225030.png"
+              alt="Projet : Experience en investissement"
+              loading="lazy"
+              onerror="this.style.display='none'; this.parentElement.classList.add('media-fallback');"
+            />
+
+            <div class="pad">
+              <h3>Experience en investissement</h3>
+              <p>Projet perso : finance / marchés / stratégies.</p>
+
+              <div class="tags">
+                <span>Finance</span><span>Trading</span><span>Analyse</span><span>Broker</span>
+              </div>
+
+              <div class="row">
+                <button class="link details-btn" type="button" aria-expanded="false">Détails</button>
+              </div>
+
+              <div class="details-panel" hidden>
+                <p class="muted">
+                  Investisseur passionné, j'ai affiné mon approche en m'appuyant sur les principes de 
+L'Investisseur Intelligent de Benjamin Graham, développant ainsi une solide expertise en 
+valorisation d'actifs sous-évalués. Mon portefeuille personnel, avec une performance de +65% 
+%, témoigne de ma capacité à identifier des opportunités de marché et à appliquer des 
+méthodes analytiques précises. Mon expérience dans l'analyse d'actions comme Palantir et 
+Coinbase m'a permis de maîtriser des outils de valorisation tels que le DCF, le 
+ratio P/E et le PEG, tout en développant une compréhension approfondie des dynamiques 
+de marché. 
+Rigoureux et autonome, je sais structurer une recherche d'investissement, synthétiser 
+l'information financière et rédiger des cas d'investissement pertinents. Mon intérêt croissant 
+pour l'intégration des critères ESG dans la valorisation des entreprises
+                </p>
+
+                <div class="details-images">
+                  <img src="IMG_2600.jpeg" alt="Illustration 1 — Investissement" loading="lazy">
+                  <img src="Capture d'écran 2026-01-21 212956.png" alt="Illustration 2 — Investissement" loading="lazy">
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <!-- PROJET 3 -->
+          <article class="card card--media">
+            <img
+              class="media"
+              src="images (1).png"
+              alt="Projet : Stage Colas Madagascar"
+              loading="lazy"
+              onerror="this.style.display='none'; this.parentElement.classList.add('media-fallback');"
+            />
+
+            <div class="pad">
+              <h3>Stage Colas Madagascar</h3>
+              <p>Gestion de projet en contexte BTP.</p>
+
+              <div class="tags">
+                <span>BTP</span><span>Gestion</span><span>Colas</span><span>Madagascar</span>
+              </div>
+
+              <div class="row">
+                <button class="link details-btn" type="button" aria-expanded="false">Détails</button>
+              </div>
+
+              <div class="details-panel" hidden>
+                <p class="muted">
+                  Ce stage de dix semaines au sein de Colas Madagascar a représenté une expérience exigeante, mais profondément enrichissante. Il m'a permis de mieux comprendre les réalités du travail en entreprise, d'expérimenter la complexité de la fonction RH et de découvrir les mutations liées à la digitalisation. J'en retiens plusieurs enseignements majeurs : l'importance de la collaboration entre services, la nécessité de l'adaptabilité et de la réactivité face aux imprévus, la valeur du développement continu des compétences et le rôle crucial du bien-être au travail. J'ai constaté qu'un management attentif, basé sur l'écoute et la reconnaissance, peut renforcer la motivation des collaborateurs et améliorer la performance globale. Ce stage a été une étape décisive de mon parcours académique et personnel. Il a renforcé ma conviction que les Ressources Humaines constituent un pilier essentiel de toute organisation et que leur évolution passera inévitablement par une intégration toujours plus poussée des outils numériques. Il m'a également permis d'affirmer ma volonté de contribuer, dans ma future carrière, à une gestion des ressources humaines qui soit à la fois moderne, responsable et durable.
+
+En dernier lieu j'aimerai faire part de la chance que j'ai eu de pouvoir visiter des chantiers et carrières en activité qui sont les activités de l'entreprise . Cela m'a permis au delà d'être une expérience de découverte enrichissante de relier le théorique derrière lesnbureaux aux, activités concrète de ce a quoi mon travail est relié mon stage a été un réelle expérience formatrice pour moi de par tous ses aspects.
+                </p>
+
+                <div class="details-images">
+                  <img src="colas-10.jpg" alt="Illustration 1 — Colas Madagascar" loading="lazy">
+                  <img src="Image.jpeg" alt="Illustration 2 — Colas Madagascar" loading="lazy">
+                </div>
+              </div>
+            </div>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="contact" class="section section--alt">
+      <div class="container">
+        <h2 class="title">Me Contacter</h2>
+        <p class="subtitle">N'hésitez pas à me contacter</p>
+
+        <div class="grid grid--2">
+          <div class="stack">
+            <div class="info">
+              <div>
+                <strong>Email</strong><br />
+                <a class="contact" href="mailto:iarovanagerald.ratsiraka.24@neoma-bs.com">iarovanagerald.ratsiraka.24@neoma-bs.com</a>
+              </div>
+            </div>
+
+            <div class="info">
+              <div>
+                <strong>Localisation</strong><br />
+                <span class="muted">France</span>
+              </div>
+            </div>
+
+            <div class="row">
+              <a class="btn btn--ghost" href="https://www.linkedin.com/in/g%C3%A9rald-ratsiraka-3b075732b/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+              <a class="btn btn--ghost" href="https://github.com/gerald-rs" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+          </div>
+
+        <form
+  action="https://formspree.io/f/mnjjlebq"
+  method="POST"
+>
+  <label>
+    Your email:
+    <input type="email" name="email">
+  </label>
+  <label>
+    Your message:
+    <textarea name="message"></textarea>
+  </label>
+  <!-- your other form fields go here -->
+  <button type="submit">Send</button>
+</form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__in">
+      <p>© <span id="year"></span> Gérald Iarovana Ratsiraka.</p>
+
+      <div class="footer__links">
+        <a href="#accueil">Accueil</a>
+        <a href="#a-propos">À propos</a>
+        <a href="#competences">Compétences</a>
+        <a href="#projets">Projets</a>
+        <a href="#contact">Contact</a>
+      </div>
+
+      <p class="love">
+        Fait avec <svg class="heart" aria-hidden="true"><use href="#i-heart"/></svg> et passion
+      </p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
