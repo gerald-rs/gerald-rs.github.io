@@ -615,7 +615,7 @@
 <script>window.RSRK_SEED = {"tabs":{"perso":{"name":"Perso","color":"#22463B","order":0,"createdAt":1},"marque":{"name":"Marque RSRK","color":"#B4552C","order":1,"createdAt":2}},"goals":{},"habits":{},"expenses":{},"events":{}};</script>
 <script>
 // Base de données locale : remplace celle de l'artefact claude.ai.
-// Tout est enregistré sur cet ordinateur (localStorage), sans serveur ni connexion.
+// Les données sont enregistrées sur l'appareil (localStorage) ; sync.js les aligne entre appareils.
 (function(){
   var KEY = 'rsrk-db';
   var COLLECTIONS = ['tabs','goals','habits','expenses','events'];
@@ -631,17 +631,40 @@
     return target;
   }
 
+  // _meta garde la date de dernière modification (u) ou de suppression (d) de chaque document,
+  // ce qui permet de fusionner deux appareils sans perdre de changement.
+  function normalize(s){
+    s = isObject(s) ? s : {};
+    COLLECTIONS.forEach(function(c){ if(!isObject(s[c])) s[c] = {}; });
+    if(!isObject(s._meta)) s._meta = {};
+    if(!isObject(s._meta.u)) s._meta.u = {};
+    if(!isObject(s._meta.d)) s._meta.d = {};
+    return s;
+  }
+
+  function touch(name, id){
+    state._meta.u[name + '/' + id] = Date.now();
+    delete state._meta.d[name + '/' + id];
+  }
+  function bury(name, id){
+    state._meta.d[name + '/' + id] = Date.now();
+    delete state._meta.u[name + '/' + id];
+  }
+
   function load(){
     var raw = localStorage.getItem(KEY);
-    // premier lancement : on part des données importées de l'artefact
-    state = raw ? JSON.parse(raw) : clone(window.RSRK_SEED || {});
-    COLLECTIONS.forEach(function(c){ if(!state[c]) state[c] = {}; });
-    if(!raw) save();
+    // premier lancement : on part des données fournies avec l'application
+    state = normalize(raw ? JSON.parse(raw) : clone(window.RSRK_SEED || {}));
+    if(!raw) persist();
+  }
+
+  function persist(){
+    try { localStorage.setItem(KEY, JSON.stringify(state)); }
+    catch(err){ alert('Enregistrement impossible : ' + err.message); }
   }
 
   function save(){
-    try { localStorage.setItem(KEY, JSON.stringify(state)); }
-    catch(err){ alert('Enregistrement impossible : ' + err.message); }
+    persist();
     if(window.RSRK_ON_SAVE) window.RSRK_ON_SAVE();
   }
 
@@ -685,7 +708,7 @@
       },
       add: function(data){
         var id = newId();
-        state[name][id] = clone(data);
+        state[name][id] = clone(data); touch(name, id);
         // la page lit l'identifiant avant le rafraîchissement, comme sur l'artefact
         return Promise.resolve({id: id}).then(function(ref){
           setTimeout(function(){ commit(name); }, 0);
@@ -699,17 +722,28 @@
     var parts = path.split('/'), name = parts[0], id = parts[1];
     function later(){ return Promise.resolve().then(function(){ setTimeout(function(){ commit(name); }, 0); }); }
     return {
-      set: function(data){ state[name][id] = clone(data); return later(); },
-      update: function(patch){ if(state[name][id]) merge(state[name][id], clone(patch)); return later(); },
-      delete: function(){ delete state[name][id]; return later(); }
+      set: function(data){ state[name][id] = clone(data); touch(name, id); return later(); },
+      update: function(patch){
+        if(state[name][id]){ merge(state[name][id], clone(patch)); touch(name, id); }
+        return later();
+      },
+      delete: function(){ delete state[name][id]; bury(name, id); return later(); }
     };
   }
 
   // une autre fenêtre de l'application a modifié les données
   window.addEventListener('storage', function(e){
     if(e.key !== KEY || !e.newValue) return;
-    state = JSON.parse(e.newValue); notify();
+    state = normalize(JSON.parse(e.newValue)); notify();
   });
+
+  // accès pour la synchronisation : lire l'état, ou le remplacer sans le marquer comme modifié ici
+  window.RSRKDB = {
+    collections: COLLECTIONS,
+    normalize: normalize,
+    get: function(){ return state; },
+    replace: function(next){ state = normalize(next); persist(); notify(); }
+  };
 
   window.claude = {
     use: function(capability){
@@ -1635,9 +1669,145 @@
 })();
 </script>
 <script>
-// Export / import des données et notifications push (version iPhone).
+// Synchronisation entre appareils : l'état complet vit dans data/db.json du dépôt GitHub privé.
+// Chaque appareil envoie ses changements dès qu'ils arrivent et relit le fichier toutes les 4 secondes.
 (function(){
-  var DB_KEY = 'rsrk-db', CFG_KEY = 'rsrk-push', SYNCED_KEY = 'rsrk-push-synced';
+  var FILE = 'data/db.json';
+  var POLL_MS = 4000, PUSH_DELAY_MS = 800;
+  var db = window.RSRKDB;
+  var s = {sha: null, etag: null, remoteCanon: null, busy: false, again: false, timer: null, poller: null};
+  var getCfg = function(){ return null; }, onStatus = function(){};
+
+  // JSON à clés triées : deux états identiques donnent la même chaîne
+  function canon(v){
+    if(Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if(v && typeof v === 'object'){
+      return '{' + Object.keys(v).sort().map(function(k){ return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+
+  function side(state, name, id){
+    var p = name + '/' + id, doc = state[name][id];
+    if(doc !== undefined) return {alive: true, doc: doc, time: state._meta.u[p] || 0};
+    if(state._meta.d[p]) return {alive: false, time: state._meta.d[p]};
+    return null;
+  }
+
+  // Fusion document par document : la modification (ou suppression) la plus récente l'emporte,
+  // à égalité c'est la version du dépôt, pour que tous les appareils convergent.
+  function merge(local, remote){
+    var out = db.normalize({});
+    var paths = {};
+    [local, remote].forEach(function(state){
+      db.collections.forEach(function(name){
+        Object.keys(state[name]).forEach(function(id){ paths[name + '/' + id] = true; });
+      });
+      Object.keys(state._meta.d).forEach(function(p){ paths[p] = true; });
+    });
+    Object.keys(paths).forEach(function(p){
+      var cut = p.indexOf('/'), name = p.slice(0, cut), id = p.slice(cut + 1);
+      if(db.collections.indexOf(name) === -1) return;
+      var l = side(local, name, id), r = side(remote, name, id);
+      var pick = !l ? r : !r ? l : (r.time >= l.time ? r : l);
+      if(pick.alive){
+        out[name][id] = pick.doc;
+        if(pick.time) out._meta.u[p] = pick.time;
+      } else {
+        out._meta.d[p] = pick.time;
+      }
+    });
+    return out;
+  }
+
+  function enc(str){ return btoa(unescape(encodeURIComponent(str))); }
+  function dec(b64){ return decodeURIComponent(escape(atob(b64.replace(/\s/g, '')))); }
+
+  function api(cfg, method, body, headers){
+    headers = headers || {};
+    headers['Authorization'] = 'Bearer ' + cfg.token;
+    headers['Accept'] = 'application/vnd.github+json';
+    return fetch('https://api.github.com/repos/' + cfg.repo + '/contents/' + FILE, {
+      method: method, cache: 'no-store', headers: headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  }
+
+  function apiError(r){
+    if(r.status === 401) return new Error('jeton GitHub refusé (expiré ou mal copié)');
+    if(r.status === 403 || r.status === 404) return new Error('dépôt introuvable ou jeton sans droit d’écriture (' + r.status + ')');
+    return new Error('GitHub a répondu ' + r.status);
+  }
+
+  function pull(cfg){
+    return api(cfg, 'GET', null, s.etag ? {'If-None-Match': s.etag} : {}).then(function(r){
+      if(r.status === 304) return;
+      if(r.status === 404){ s.sha = null; s.etag = null; s.remoteCanon = ''; return; }
+      if(!r.ok) throw apiError(r);
+      return r.json().then(function(file){
+        var remote = db.normalize(JSON.parse(dec(file.content)));
+        var merged = merge(db.get(), remote);
+        if(canon(merged) !== canon(db.get())) db.replace(merged);
+        s.sha = file.sha; s.etag = r.headers.get('ETag'); s.remoteCanon = canon(remote);
+      });
+    });
+  }
+
+  function push(cfg){
+    var local = canon(db.get());
+    if(local === s.remoteCanon) return;
+    var body = {message: 'sync', content: enc(JSON.stringify(db.get()))};
+    if(s.sha) body.sha = s.sha;
+    return api(cfg, 'PUT', body).then(function(r){
+      // un autre appareil a écrit entre-temps : on relit, on fusionne et on renvoie
+      if(r.status === 409 || r.status === 422){ s.etag = null; s.again = true; return; }
+      if(!r.ok) throw apiError(r);
+      return r.json().then(function(res){
+        s.sha = res.content.sha; s.etag = null; s.remoteCanon = local;
+      });
+    });
+  }
+
+  function run(){
+    var cfg = getCfg();
+    if(!cfg) return Promise.resolve();
+    if(s.busy){ s.again = true; return Promise.resolve(); }
+    s.busy = true;
+    return pull(cfg).then(function(){ return push(cfg); }).then(function(){
+      onStatus({ok: true, at: Date.now()});
+    }, function(err){
+      onStatus({ok: false, error: (err && err.message) || 'connexion impossible'});
+    }).then(function(){
+      s.busy = false;
+      if(s.again){ s.again = false; return run(); }
+    });
+  }
+
+  function reset(){ s.sha = null; s.etag = null; s.remoteCanon = null; }
+
+  function start(options){
+    getCfg = options.getCfg; onStatus = options.onStatus || onStatus;
+    window.RSRK_ON_SAVE = function(){
+      clearTimeout(s.timer);
+      s.timer = setTimeout(run, PUSH_DELAY_MS);
+    };
+    s.poller = setInterval(function(){
+      if(typeof document === 'undefined' || !document.hidden) run();
+    }, POLL_MS);
+    if(typeof document !== 'undefined'){
+      document.addEventListener('visibilitychange', function(){ if(!document.hidden) run(); });
+    }
+    window.addEventListener('online', run);
+    return run();
+  }
+
+  window.RSRKSYNC = {start: start, run: run, reset: reset, merge: merge, canon: canon};
+})();
+</script>
+<script>
+// Pied de page : export / import, synchronisation entre appareils, notifications push (iPhone).
+(function(){
+  var DB_KEY = 'rsrk-db', CFG_KEY = 'rsrk-push';
   var VAPID_PUBLIC = 'BB5TqxthPqWhxByrYfBvg_GD1Nc7U_wBmJit5q_-JSS7wNjlT5kFxUp4mqqXrAR6K5emm1QqEQJcydl1uudbZB0';
   var DEFAULT_REPO = 'gerald-rs/rsrk-push';
   var hosted = location.protocol === 'https:';
@@ -1650,13 +1820,15 @@
   function getCfg(){ try { return JSON.parse(localStorage.getItem(CFG_KEY)) || null; } catch(e){ return null; } }
   function setCfg(cfg){
     if(cfg) localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-    else { localStorage.removeItem(CFG_KEY); localStorage.removeItem(SYNCED_KEY); }
+    else localStorage.removeItem(CFG_KEY);
   }
 
   // ---------- pied de page ----------
   var style = document.createElement('style');
   style.textContent =
-    '.app-foot{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:40px;padding-top:18px;border-top:1px solid var(--line);}' +
+    '.app-foot{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 20px;margin-top:40px;padding-top:18px;border-top:1px solid var(--line);}' +
+    '.app-foot .sync-state{font-size:13px;color:var(--ink-muted);margin-left:auto;font-variant-numeric:tabular-nums;}' +
+    '.app-foot .sync-state.err{color:var(--critical);}' +
     '.modal p.hint{font-size:14px;color:var(--ink-muted);margin:0 0 14px;line-height:1.5;}' +
     '.modal p.status{font-size:14px;margin:12px 0 0;line-height:1.5;}' +
     '.modal p.status.err{color:var(--critical);}';
@@ -1669,14 +1841,27 @@
   }
   footLink('Exporter les données', exportData);
   footLink('Importer des données', importData);
+  footLink('Synchronisation', openSyncModal);
   if(hosted) footLink('Notifications', openPushModal);
+  var syncState = document.createElement('span'); syncState.className = 'sync-state';
+  foot.appendChild(syncState);
   document.querySelector('.app').appendChild(foot);
+
+  var lastStatus = null;
+  function showStatus(st){
+    lastStatus = st;
+    if(!getCfg()){ syncState.textContent = ''; return; }
+    syncState.className = 'sync-state' + (st.ok ? '' : ' err');
+    syncState.textContent = st.ok
+      ? 'Synchronisé · ' + new Date(st.at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})
+      : 'Non synchronisé : ' + st.error;
+  }
 
   // ---------- export / import ----------
   function exportData(){
     var d = new Date();
     var name = 'rsrk-donnees-' + d.getFullYear() + '-' + ('0' + (d.getMonth()+1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + '.json';
-    var json = JSON.stringify(JSON.parse(localStorage.getItem(DB_KEY) || '{}'), null, 2);
+    var json = JSON.stringify(window.RSRKDB.get(), null, 2);
     // sur iPhone, la feuille de partage permet d'enregistrer dans Fichiers ou d'envoyer par AirDrop
     if('standalone' in navigator && navigator.canShare){
       var file = new File([json], name, {type: 'application/json'});
@@ -1698,85 +1883,89 @@
       file.text().then(function(txt){
         var data = JSON.parse(txt);
         if(!data || typeof data.tabs !== 'object' || typeof data.goals !== 'object') throw new Error('format inattendu');
-        if(!confirm('Remplacer toutes les données de cet appareil par celles du fichier ?')) return;
+        if(!confirm('Remplacer les données de cet appareil par celles du fichier ?')) return;
+        // les documents importés sont datés de maintenant : ils l'emportent à la prochaine synchronisation
+        data = window.RSRKDB.normalize(data);
+        var now = Date.now();
+        window.RSRKDB.collections.forEach(function(c){
+          Object.keys(data[c]).forEach(function(id){ data._meta.u[c + '/' + id] = now; });
+        });
         localStorage.setItem(DB_KEY, JSON.stringify(data));
-        localStorage.removeItem(SYNCED_KEY);
         location.reload();
       }).catch(function(err){ alert('Fichier illisible : ' + err.message); });
     });
     input.click();
   }
 
-  // ---------- dépôt privé GitHub (agenda + abonnement) ----------
-  function b64(str){ return btoa(unescape(encodeURIComponent(str))); }
-
-  function gh(cfg, file, method, body){
-    return fetch('https://api.github.com/repos/' + cfg.repo + '/contents/' + file, {
-      method: method, cache: 'no-store',
-      headers: {'Authorization': 'Bearer ' + cfg.token, 'Accept': 'application/vnd.github+json'},
-      body: body ? JSON.stringify(body) : undefined
-    });
-  }
-
-  function ghError(r){
-    if(r.status === 401) return new Error('jeton GitHub refusé (expiré ou mal copié).');
-    if(r.status === 403 || r.status === 404) return new Error('dépôt introuvable ou jeton sans droit d’écriture (' + r.status + ').');
-    return new Error('GitHub a répondu ' + r.status + '.');
-  }
-
-  function putFile(cfg, file, obj){
-    return gh(cfg, file, 'GET').then(function(r){
-      // 404 : le fichier n'existe pas encore (si c'est le dépôt qui manque, l'écriture le dira)
-      if(r.status === 404) return null;
-      if(!r.ok) throw ghError(r);
-      return r.json();
-    }).then(function(cur){
-      var body = {message: 'maj ' + file, content: b64(JSON.stringify(obj, null, 2) + '\n')};
-      if(cur && cur.sha) body.sha = cur.sha;
-      return gh(cfg, file, 'PUT', body);
-    }).then(function(r){ if(!r.ok) throw ghError(r); });
-  }
-
-  function eventsPayload(){
-    var db = JSON.parse(localStorage.getItem(DB_KEY) || '{}'), col = db.events || {};
-    return Object.keys(col).sort().map(function(id){
-      var e = col[id];
-      return {title: e.title || '', date: e.date || '', time: e.time || '', repeatYearly: !!e.repeatYearly};
-    });
-  }
-
-  function syncEvents(){
+  // ---------- synchronisation ----------
+  function openSyncModal(){
     var cfg = getCfg();
-    if(!cfg) return Promise.resolve();
-    var payload = eventsPayload(), json = JSON.stringify(payload);
-    if(localStorage.getItem(SYNCED_KEY) === json) return Promise.resolve();
-    return putFile(cfg, 'data/events.json', payload).then(function(){
-      localStorage.setItem(SYNCED_KEY, json);
-      cfg.syncError = ''; cfg.syncedAt = Date.now(); setCfg(cfg);
-    }, function(err){
-      cfg.syncError = err.message; setCfg(cfg);
-      throw err;
+    modal.innerHTML =
+      '<h3>Synchronisation</h3>' +
+      '<p class="hint">Garde cet appareil identique aux autres, en quelques secondes. Les données sont enregistrées dans ton dépôt GitHub privé ; saisis le même dépôt et le même jeton sur chaque appareil.</p>' +
+      '<div class="field"><label>Dépôt privé</label><input type="text" id="yRepo" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
+      '<div class="field"><label>Jeton GitHub</label><input type="text" id="yToken" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></div>' +
+      '<p class="status" id="yStatus"></p>' +
+      '<div class="modal-actions">' +
+        (cfg ? '<button class="btn text" id="yOff">Désactiver</button>' : '') +
+        '<span style="flex:1"></span>' +
+        '<button class="btn ghost" id="yCancel">Fermer</button>' +
+        '<button class="btn primary" id="ySave">' + (cfg ? 'Enregistrer' : 'Activer') + '</button>' +
+      '</div>';
+    var status = document.getElementById('yStatus');
+    function say(text, isErr){ status.textContent = text; status.className = 'status' + (isErr ? ' err' : ''); }
+    document.getElementById('yRepo').value = cfg ? cfg.repo : DEFAULT_REPO;
+    document.getElementById('yToken').value = cfg ? cfg.token : '';
+    if(cfg && lastStatus) say(lastStatus.ok ? 'Synchronisation active.' : 'Échec : ' + lastStatus.error + '.', !lastStatus.ok);
+    overlay.hidden = false;
+    document.getElementById('yCancel').addEventListener('click', closeModal);
+
+    document.getElementById('ySave').addEventListener('click', function(){
+      var next = cfg ? JSON.parse(JSON.stringify(cfg)) : {};
+      next.repo = document.getElementById('yRepo').value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\/$/, '');
+      next.token = document.getElementById('yToken').value.trim();
+      if(!/^[^\/\s]+\/[^\/\s]+$/.test(next.repo) || !next.token){ say('Indique le dépôt (compte/nom) et le jeton.', true); return; }
+      say('Connexion…');
+      setCfg(next); cfg = next;
+      window.RSRKSYNC.reset();
+      window.RSRKSYNC.run().then(function(){
+        if(lastStatus && lastStatus.ok) say('Synchronisation active.');
+        else say('Échec : ' + (lastStatus ? lastStatus.error : 'connexion impossible') + '.', true);
+      });
+    });
+
+    if(cfg) document.getElementById('yOff').addEventListener('click', function(){
+      setCfg(null); window.RSRKSYNC.reset(); syncState.textContent = ''; closeModal();
     });
   }
-
-  var syncTimer = null;
-  window.RSRK_ON_SAVE = function(){
-    if(!getCfg()) return;
-    clearTimeout(syncTimer);
-    syncTimer = setTimeout(function(){ syncEvents().catch(function(){}); }, 4000);
-  };
 
   // ---------- notifications ----------
+  function b64(str){ return btoa(unescape(encodeURIComponent(str))); }
+
+  function putSubscription(cfg, value){
+    var url = 'https://api.github.com/repos/' + cfg.repo + '/contents/data/subscription.json';
+    var headers = {'Authorization': 'Bearer ' + cfg.token, 'Accept': 'application/vnd.github+json'};
+    return fetch(url, {cache: 'no-store', headers: headers}).then(function(r){
+      if(r.status === 404) return null;
+      if(!r.ok) throw new Error('GitHub a répondu ' + r.status);
+      return r.json();
+    }).then(function(cur){
+      var body = {message: 'abonnement', content: b64(JSON.stringify({subscription: value, updatedAt: Date.now()}, null, 2) + '\n')};
+      if(cur && cur.sha) body.sha = cur.sha;
+      return fetch(url, {method: 'PUT', headers: headers, body: JSON.stringify(body)});
+    }).then(function(r){ if(!r.ok) throw new Error('GitHub a répondu ' + r.status); });
+  }
+
   function keyBytes(b64url){
-    var s = atob(b64url.replace(/-/g, '+').replace(/_/g, '/'));
-    var out = new Uint8Array(s.length);
-    for(var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    var str = atob(b64url.replace(/-/g, '+').replace(/_/g, '/'));
+    var out = new Uint8Array(str.length);
+    for(var i = 0; i < str.length; i++) out[i] = str.charCodeAt(i);
     return out;
   }
 
   function subscribe(){
     return Notification.requestPermission().then(function(p){
-      if(p !== 'granted') throw new Error('notifications refusées. Autorise-les dans Réglages › Notifications › RSRK.');
+      if(p !== 'granted') throw new Error('notifications refusées. Autorise-les dans Réglages › Notifications › RSRK');
       return navigator.serviceWorker.ready;
     }).then(function(reg){
       return reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC)});
@@ -1785,79 +1974,65 @@
 
   function openPushModal(){
     var cfg = getCfg();
-    if(!canPush){
-      modal.innerHTML =
-        '<h3>Notifications</h3>' +
-        '<p class="hint">Sur iPhone, les notifications ne fonctionnent que depuis l’application installée : dans Safari, touche Partager puis « Sur l’écran d’accueil », et ouvre RSRK depuis son icône.</p>' +
-        '<div class="modal-actions"><span style="flex:1"></span><button class="btn ghost" id="pCancel">Fermer</button></div>';
-      overlay.hidden = false;
-      document.getElementById('pCancel').addEventListener('click', closeModal);
-      return;
-    }
+    var hint = !canPush
+      ? 'Sur iPhone, les notifications ne fonctionnent que depuis l’application installée : dans Safari, touche Partager puis « Sur l’écran d’accueil », et ouvre RSRK depuis son icône.'
+      : !cfg
+        ? 'Active d’abord la synchronisation : les notifications sont préparées à partir de l’agenda synchronisé.'
+        : 'Rappels à 8 h et 14 h, et chaque matin où l’agenda contient un événement.';
+    var ready = canPush && cfg, on = ready && cfg.endpoint;
     modal.innerHTML =
       '<h3>Notifications</h3>' +
-      '<p class="hint">Rappels à 8 h et 14 h, et chaque matin où l’agenda contient un événement. L’agenda de cet appareil est copié dans ton dépôt GitHub privé pour préparer les envois.</p>' +
-      '<div class="field"><label>Dépôt privé</label><input type="text" id="pRepo" autocapitalize="off" autocorrect="off" spellcheck="false"></div>' +
-      '<div class="field"><label>Jeton GitHub</label><input type="text" id="pToken" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="github_pat_…"></div>' +
+      '<p class="hint">' + hint + '</p>' +
       '<p class="status" id="pStatus"></p>' +
       '<div class="modal-actions">' +
-        (cfg ? '<button class="btn text" id="pOff">Désactiver</button>' : '') +
+        (on ? '<button class="btn text" id="pOff">Désactiver</button>' : '') +
         '<span style="flex:1"></span>' +
         '<button class="btn ghost" id="pCancel">Fermer</button>' +
-        '<button class="btn primary" id="pSave">' + (cfg ? 'Réactiver' : 'Activer') + '</button>' +
+        (ready ? '<button class="btn primary" id="pSave">' + (on ? 'Réactiver' : 'Activer') + '</button>' : '') +
       '</div>';
     var status = document.getElementById('pStatus');
     function say(text, isErr){ status.textContent = text; status.className = 'status' + (isErr ? ' err' : ''); }
-    document.getElementById('pRepo').value = cfg ? cfg.repo : DEFAULT_REPO;
-    document.getElementById('pToken').value = cfg ? cfg.token : '';
-    if(cfg) say(cfg.syncError
-      ? 'Activées, mais la dernière copie de l’agenda a échoué : ' + cfg.syncError
-      : 'Activées sur cet appareil.', !!cfg.syncError);
+    if(on) say('Activées sur cet appareil.');
     overlay.hidden = false;
     document.getElementById('pCancel').addEventListener('click', closeModal);
+    if(!ready) return;
 
     document.getElementById('pSave').addEventListener('click', function(){
-      var next = {
-        repo: document.getElementById('pRepo').value.trim().replace(/^https:\/\/github\.com\//, '').replace(/\/$/, ''),
-        token: document.getElementById('pToken').value.trim()
-      };
-      if(!/^[^\/\s]+\/[^\/\s]+$/.test(next.repo) || !next.token){ say('Indique le dépôt (compte/nom) et le jeton.', true); return; }
       say('Activation…');
       subscribe().then(function(sub){
-        next.endpoint = sub.endpoint;
-        return putFile(next, 'data/subscription.json', {subscription: sub.toJSON(), updatedAt: Date.now()});
+        cfg.endpoint = sub.endpoint;
+        return putSubscription(cfg, sub.toJSON());
       }).then(function(){
-        setCfg(next);
-        localStorage.removeItem(SYNCED_KEY);
-        return syncEvents();
-      }).then(function(){
+        setCfg(cfg);
         say('Activées. Une notification de test arrive d’ici une à deux minutes.');
-      }).catch(function(err){ say('Échec : ' + err.message, true); });
+      }).catch(function(err){ say('Échec : ' + err.message + '.', true); });
     });
 
-    if(cfg) document.getElementById('pOff').addEventListener('click', function(){
+    if(on) document.getElementById('pOff').addEventListener('click', function(){
       say('Désactivation…');
       navigator.serviceWorker.ready.then(function(reg){ return reg.pushManager.getSubscription(); })
         .then(function(sub){ if(sub) return sub.unsubscribe(); })
-        .then(function(){ return putFile(cfg, 'data/subscription.json', {subscription: null, updatedAt: Date.now()}); })
-        .then(function(){ setCfg(null); closeModal(); })
-        .catch(function(err){ say('Échec : ' + err.message, true); });
+        .then(function(){ return putSubscription(cfg, null); })
+        .then(function(){ delete cfg.endpoint; setCfg(cfg); closeModal(); })
+        .catch(function(err){ say('Échec : ' + err.message + '.', true); });
     });
   }
 
   // ---------- démarrage ----------
+  window.RSRKSYNC.start({getCfg: getCfg, onStatus: showStatus});
+
   if(hosted && 'serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').then(function(){
       var cfg = getCfg();
-      if(!cfg || !canPush) return;
+      if(!cfg || !cfg.endpoint || !canPush) return;
       // iOS renouvelle parfois l'abonnement : on republie l'adresse si elle a changé
       return navigator.serviceWorker.ready.then(function(reg){ return reg.pushManager.getSubscription(); })
         .then(function(sub){
           if(sub && sub.endpoint !== cfg.endpoint){
             cfg.endpoint = sub.endpoint; setCfg(cfg);
-            return putFile(cfg, 'data/subscription.json', {subscription: sub.toJSON(), updatedAt: Date.now()});
+            return putSubscription(cfg, sub.toJSON());
           }
-        }).then(syncEvents);
+        });
     }).catch(function(){});
   }
 })();
