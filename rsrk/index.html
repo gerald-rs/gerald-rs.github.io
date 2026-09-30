@@ -1817,10 +1817,17 @@
   var modal = document.getElementById('modal');
   function closeModal(){ overlay.hidden = true; modal.innerHTML = ''; }
 
-  function getCfg(){ try { return JSON.parse(localStorage.getItem(CFG_KEY)) || null; } catch(e){ return null; } }
+  // RSRK_SYNC_DEFAULT : réglage fourni avec la version PC, utilisé tant que rien n'a été saisi ici.
+  // Une désactivation est mémorisée ('off') pour que ce réglage ne revienne pas tout seul.
+  function getCfg(){
+    try {
+      var raw = localStorage.getItem(CFG_KEY);
+      if(raw === 'off') return null;
+      return (raw && JSON.parse(raw)) || window.RSRK_SYNC_DEFAULT || null;
+    } catch(e){ return null; }
+  }
   function setCfg(cfg){
-    if(cfg) localStorage.setItem(CFG_KEY, JSON.stringify(cfg));
-    else localStorage.removeItem(CFG_KEY);
+    localStorage.setItem(CFG_KEY, cfg ? JSON.stringify(cfg) : 'off');
   }
 
   // ---------- pied de page ----------
