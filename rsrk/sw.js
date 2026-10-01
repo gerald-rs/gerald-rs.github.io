@@ -1,5 +1,5 @@
 // Service worker : application disponible hors connexion + réception des notifications.
-const CACHE = 'rsrk-v1';
+const CACHE = 'rsrk-v2';
 const SHELL = ['./', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (event) => {

@@ -1949,7 +1949,12 @@
   // ---------- notifications ----------
   function b64(str){ return btoa(unescape(encodeURIComponent(str))); }
 
-  function putSubscription(cfg, value){
+  function unb64(str){ return decodeURIComponent(escape(atob(str.replace(/\s/g, '')))); }
+
+  // Un abonnement par appareil, rangés par adresse (endpoint) : activer ou désactiver
+  // sur un appareil ne touche jamais aux autres. `add` : abonnement à ajouter ;
+  // `remove` : adresses à retirer. N'écrit rien si la liste ne change pas.
+  function updateSubscriptions(cfg, add, remove){
     var url = 'https://api.github.com/repos/' + cfg.repo + '/contents/data/subscription.json';
     var headers = {'Authorization': 'Bearer ' + cfg.token, 'Accept': 'application/vnd.github+json'};
     return fetch(url, {cache: 'no-store', headers: headers}).then(function(r){
@@ -1957,10 +1962,20 @@
       if(!r.ok) throw new Error('GitHub a répondu ' + r.status);
       return r.json();
     }).then(function(cur){
-      var body = {message: 'abonnement', content: b64(JSON.stringify({subscription: value, updatedAt: Date.now()}, null, 2) + '\n')};
+      var data = {};
+      try { data = cur ? JSON.parse(unb64(cur.content)) : {}; } catch(e){}
+      var subs = data.subscriptions || {};
+      // ancien format : un seul abonnement
+      if(data.subscription && data.subscription.endpoint) subs[data.subscription.endpoint] = data.subscription;
+      var before = JSON.stringify(subs);
+      (remove || []).forEach(function(endpoint){ if(endpoint) delete subs[endpoint]; });
+      if(add) subs[add.endpoint] = add;
+      if(JSON.stringify(subs) === before && !data.subscription) return null;
+      var body = {message: 'abonnement', content: b64(JSON.stringify({subscriptions: subs, updatedAt: Date.now()}, null, 2) + '\n')};
       if(cur && cur.sha) body.sha = cur.sha;
-      return fetch(url, {method: 'PUT', headers: headers, body: JSON.stringify(body)});
-    }).then(function(r){ if(!r.ok) throw new Error('GitHub a répondu ' + r.status); });
+      return fetch(url, {method: 'PUT', headers: headers, body: JSON.stringify(body)})
+        .then(function(r){ if(!r.ok) throw new Error('GitHub a répondu ' + r.status); });
+    });
   }
 
   function keyBytes(b64url){
@@ -2007,8 +2022,9 @@
     document.getElementById('pSave').addEventListener('click', function(){
       say('Activation…');
       subscribe().then(function(sub){
+        var previous = cfg.endpoint;
         cfg.endpoint = sub.endpoint;
-        return putSubscription(cfg, sub.toJSON());
+        return updateSubscriptions(cfg, sub.toJSON(), previous !== sub.endpoint ? [previous] : []);
       }).then(function(){
         setCfg(cfg);
         say('Activées. Une notification de test arrive d’ici une à deux minutes.');
@@ -2019,7 +2035,7 @@
       say('Désactivation…');
       navigator.serviceWorker.ready.then(function(reg){ return reg.pushManager.getSubscription(); })
         .then(function(sub){ if(sub) return sub.unsubscribe(); })
-        .then(function(){ return putSubscription(cfg, null); })
+        .then(function(){ return updateSubscriptions(cfg, null, [cfg.endpoint]); })
         .then(function(){ delete cfg.endpoint; setCfg(cfg); closeModal(); })
         .catch(function(err){ say('Échec : ' + err.message + '.', true); });
     });
@@ -2032,13 +2048,15 @@
     navigator.serviceWorker.register('sw.js').then(function(){
       var cfg = getCfg();
       if(!cfg || !cfg.endpoint || !canPush) return;
-      // iOS renouvelle parfois l'abonnement : on republie l'adresse si elle a changé
+      // À chaque lancement, on vérifie que cet appareil figure bien dans la liste :
+      // iOS renouvelle parfois l'abonnement, et une ancienne version de l'application
+      // écrasait l'abonnement des autres appareils. Rien n'est écrit si tout est à jour.
       return navigator.serviceWorker.ready.then(function(reg){ return reg.pushManager.getSubscription(); })
         .then(function(sub){
-          if(sub && sub.endpoint !== cfg.endpoint){
-            cfg.endpoint = sub.endpoint; setCfg(cfg);
-            return putSubscription(cfg, sub.toJSON());
-          }
+          if(!sub) return;
+          var previous = cfg.endpoint;
+          if(sub.endpoint !== previous){ cfg.endpoint = sub.endpoint; setCfg(cfg); }
+          return updateSubscriptions(cfg, sub.toJSON(), previous !== sub.endpoint ? [previous] : []);
         });
     }).catch(function(){});
   }
